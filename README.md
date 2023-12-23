@@ -4,7 +4,9 @@
 
 
 First install the conda environment: 
-```conda env create -f phase_env.yml```, then activate it.
+```conda env create -f phase_env_ubu.yml```, if you are on Ubuntu, or 
+```conda env create -f phase_env_mac.yml``` if you are on MacOS, then 
+activate it.
 
 
 You can train an RNN models by running ```python rnn_scripts/run_training.py```

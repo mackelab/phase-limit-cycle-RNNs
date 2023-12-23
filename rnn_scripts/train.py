@@ -417,14 +417,7 @@ def offset_loss_masked(rates, **kwargs):
 
 def offset_loss(rates, **kwargs):
     """l2 reg on non zero mean single unit firing rates"""
-    s = kwargs["stim"]
-    lm = torch.zeros_like(rates[:, :, 0])
-    ind = torch.sum(s[:, :, :-2], axis=-1) < 0.01
-    lm[ind] = 1
-    lm = lm.unsqueeze(-1)
-    # print(lm.size())
-    # print(rates.size())
-    return torch.mean(torch.mean(lm * rates, dim=1) ** 2)
+    return torch.mean(torch.mean(rates, dim=1) ** 2)
 
 
 def l2_rates_loss(rates, **kwargs):

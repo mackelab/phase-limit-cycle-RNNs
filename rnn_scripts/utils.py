@@ -15,6 +15,7 @@ from tasks.seqDS_lfp import seqDS as seqDS_LFP
 from train import *
 
 
+
 def poincare_map(Ks, period, t0, phases, ph0=0):
     """
     Calculate the Poincare map of a given RNN trajectory with constant sinusoidal input.
@@ -42,7 +43,7 @@ def poincare_map(Ks, period, t0, phases, ph0=0):
         pm[i] = Ks[i, :, pm_inds].T
     return pm
 
-def get_traj(rnn, task_params, freq, amp_scale=1,apply_tanh_rates=True,batch_size=50):
+def get_traj(rnn, task_params, freq, amp_scale=1,apply_tanh_rates=True,batch_size=50, stim_scale=1):
     """
     Return the RNN trajectory for a given frequency and amplitude of the reference oscillation
 
@@ -73,14 +74,15 @@ def get_traj(rnn, task_params, freq, amp_scale=1,apply_tanh_rates=True,batch_siz
     # create task input
     test_input, test_target, test_mask = next(iter(dataloader))
     test_input[:, :, 0] *= amp_scale
-    
+    labels = extract_labels(test_input, rnn.params["n_inp"] - 1)
+
     # simulate RNN
+    test_input[:, :, 1:] *= stim_scale
     rates, _ = predict(rnn, test_input, mse_loss, test_target, test_mask)
     # extract input phase and project RNN activity on left singular vectors
-    labels = extract_labels(test_input, rnn.params["n_inp"] - 1)
     trials = [np.where(labels == i)[0][0] for i in range(rnn.params["n_inp"] - 1)]
     n_periods = 1
-    ks = np.zeros((len(trials), 2, period + 1))
+    ks = np.zeros((len(trials), rnn.rnn.rank, period + 1))
     rates_aligned = np.zeros((len(trials), period,rnn.rnn.N))
     phases = np.linspace(0, np.pi * 2 * n_periods, period + 1)
     _, _, m, _ = extract_loadings(rnn, orth_I=False, split=True)
@@ -111,7 +113,9 @@ def get_traj(rnn, task_params, freq, amp_scale=1,apply_tanh_rates=True,batch_siz
     return ks, phases,rates_aligned
 
 
-def plot_covs(covs, vm, labels, titles, figsize=None, dpi=100, fontsize=8, float_labels=False,atol=0.1):
+
+
+def plot_covs(covs, vm, labels=None, titles=None, figsize=None, dpi=100, fontsize=8, float_labels=False,atol=0.1, float_lims=5,label_fs=8,numbers_fs=8):
     """
     Plot coviarance matrices
 
@@ -129,35 +133,37 @@ def plot_covs(covs, vm, labels, titles, figsize=None, dpi=100, fontsize=8, float
         axs: axis handle
     """
     
-    n_cov = len(covs)
-    n_l = len(labels)
-
+    n_cov, n_l = np.shape(covs)[:2]
     if not figsize:
         figsize = (6, n_cov * 6)
     fig, axs = plt.subplots(1, n_cov, figsize=figsize, dpi=dpi)
     for i, cov in enumerate(covs):
         data = np.ma.masked_where(np.triu(np.ones((n_l, n_l))) < 0.01, cov[:n_l, :n_l])
         axs[i].imshow(data, cmap="coolwarm", vmin=-vm, vmax=vm)
-        add_numbers(axs[i], data, fontsize,float_labels,atol)
-        axs[i].set_xticks(np.arange(n_l), labels)
-        axs[i].set_yticks([], labels=[])
+        add_numbers(axs[i], data, numbers_fs,float_labels,float_lims,atol)
+
         axs[i].yaxis.tick_right()
         axs[i].xaxis.tick_top()
         axs[i].spines["left"].set_visible(False)
         axs[i].spines["bottom"].set_visible(False)
         axs[i].spines["top"].set_visible(True)
         axs[i].spines["right"].set_visible(True)
-        axs[i].set_title(titles[i])
+        if titles is not None:
+            axs[i].set_title(titles[i])
+        if labels is not None:
 
-    axs[i].set_yticks(np.arange(n_l), labels)
+            axs[i].set_xticks(np.arange(n_l), labels,fontsize=label_fs)
+            axs[i].set_yticks([], labels=[])
+    if labels is not None:
+        axs[i].set_yticks(np.arange(n_l), labels,fontsize=label_fs)
     return fig, axs
 
-def add_numbers(ax, grid, fontsize,float_labels=False,atol=0.1):
+def add_numbers(ax, grid, fontsize,float_labels=False,float_lims=5,atol=0.1):
     """add numbers to covariance matrix plots"""
     for (j, i), label in np.ndenumerate(grid):
         if not np.isclose(label, 0, atol=atol):
             if j <= i:
-                if float_labels:
+                if float_labels and abs(label)<float_lims:
                     ax.text(i, j, "{:.1f}".format(label), ha="center", va="center", fontsize=fontsize)
                 else:
                     ax.text(i, j, int(label), ha="center", va="center", fontsize=fontsize)
@@ -212,9 +218,7 @@ def create_ICs(r_range, phi_range, theta_range, tau, T, dt, w, m, I_orth, stim_i
                 i += 1
 
     return x0s, input_ICs, phases
-
-
-def create_ICs_MF(r_range, phi_range, theta_range, tau, T, dt, w):
+def create_ICs_MF(r_range, phi_range, theta_range, tau, T, dt, w, n_inp=3):
     """
     Create ICs for mean-field RNN simulations
 
@@ -235,8 +239,8 @@ def create_ICs_MF(r_range, phi_range, theta_range, tau, T, dt, w):
     """
     tm = np.arange(0, T, dt / 1000)
     total = len(r_range) * len(phi_range) * len(theta_range)
-    input_ICs = torch.zeros((total, len(tm), 3))
-    x0s = torch.zeros((total, 5))
+    input_ICs = torch.zeros((total, len(tm), n_inp))
+    x0s = torch.zeros((total, n_inp+2))
     phases = np.zeros((total, len(tm)))
 
     i = 0
@@ -257,12 +261,14 @@ def create_ICs_MF(r_range, phi_range, theta_range, tau, T, dt, w):
                     * np.cos(ph0 - np.arctan2(tau * w / 1000, 1))
                 )
                 u = np.array([np.sin(tm * w + ph0), np.cos(tm * w + ph0)]).T
-                x0 = np.array([k1, k2, v1, 0, 0])
+                x0 = [k1, k2, v1]
+                for _ in range(n_inp-1):
+                    x0.append(0)
+                x0 = np.array(x0)
                 x0s[i] = torch.from_numpy(x0)
                 input_ICs[i, :, 0] = torch.from_numpy(u[:, 0])
                 i += 1
     return x0s, input_ICs, phases
-
 
 
 def make_deterministic(task_params, rnn):
@@ -519,12 +525,15 @@ def lut_to_grey(lut):
 def cluster(
     loadings,
     n_components,
+    bayes=True,
     n_init=100,
     random_state=None,
-    mean_precision_prior=1e-5,
+    mean_precision_prior=10e5,
     mean_prior=None,
     weight_concentration_prior_type="dirichlet_process",
     weight_concentration_prior=None,
+    max_iter=1000,
+    init_params="random",
 ):
     """
     Clusters the loadings (connectivity of LR RNN) using a Gaussian Mixture Model
@@ -543,16 +552,19 @@ def cluster(
     Returns:
         z: cluster assignment
     """
-    gmm = mixture.BayesianGaussianMixture(
-        n_components=n_components,
-        n_init=n_init,
-        random_state=random_state,
-        mean_prior=mean_prior,
-        init_params="random",
-        mean_precision_prior=mean_precision_prior,
-        weight_concentration_prior_type=weight_concentration_prior_type,
-        weight_concentration_prior=weight_concentration_prior,
-    )
+    if not bayes:
+        gmm = mixture.GaussianMixture(n_components=n_components, covariance_type='full',max_iter=max_iter,n_init=n_init,init_params=init_params)
+    else:
+        gmm = mixture.BayesianGaussianMixture(
+            n_components=n_components,
+            n_init=n_init,
+            random_state=random_state,
+            mean_prior=mean_prior,
+            init_params=init_params,
+            mean_precision_prior=mean_precision_prior,
+            weight_concentration_prior_type=weight_concentration_prior_type,
+            weight_concentration_prior=weight_concentration_prior,
+        )
 
     gmm = gmm.fit(loadings.T)
     z = gmm.predict(loadings.T)
@@ -924,7 +936,7 @@ def create_MF_covs(cov_params, plot=False,vm=3):
         """
         titles=["oscillator (w=.5)","coupling a (w=.25)","coupling b (w=.25)"]
 
-        labels = ["$I_{osc}$", "$I_{s_a}$", "$I_{s_b}$", "$n_1$", "$n_2$", "$m_1$", "$m_2$"]
+        labels = ["$I_{osc}$", "$I_{s_a}$", "$I_{s_b}$", "$n_1$", "$n_2$", "$m_1$", "$m_2$", "w"]
 
 
         _,_=plot_covs([cov1,cov21,cov22],vm,labels,titles)
@@ -937,7 +949,7 @@ def create_MF_covs(cov_params, plot=False,vm=3):
     return chol_covs
 
 
-def create_ICs_phase_prec(r_range,phi_range,theta_range, stim_range,tau, T, dt,w,amp):
+def create_ICs_phase_prec(r_range,phi_range,theta_range, stim_range,tau, T, dt,w,amp,n_inp=2):
     """
     Create initial conditions for a phase precession model
     Args:
@@ -1070,3 +1082,320 @@ def create_MF_covs_phase_prec(cov_params, plot=False):
 
     chol_covs = np.concatenate([[chol_cov1],[chol_cov1],[chol_cov21],[chol_cov22]])
     return chol_covs
+
+
+def create_MF_covs_R1(cov_params, plot=False,vm=3):
+   
+    """
+    Create covariance matrices for a rank 1 network
+
+    Args:
+        cov_params:dictionary of covariance parameters
+        plot: plot the covariance matrices. Defaults to False.
+    
+    Returns:
+        chol_covs: Cholesky decomposition of the covariance matrices
+    """ 
+    
+
+    eps = 1e-4
+    sdII1 = cov_params["sdII1"]
+    sdIs1 = cov_params["sdIs1"]
+    sdIw1 = cov_params["sdIw1"]
+    sdn1 = cov_params["sdn1"]
+    sdmn1 = cov_params["sdmn1"]
+    sdm1 = cov_params["sdm1"]
+    sdW1 = cov_params["sdW1"]
+
+      
+
+    cov1 = np.array([[sdII1, 0,    0,   0,    0,     sdIw1],
+                    [ 0,     sdIs1,0,   0,    0,     0   ],
+                    [ 0,     0,    eps, 0,    0,     0   ],
+                    [ 0,     0,    0,   sdn1, sdmn1, 0   ],
+                    [ 0,     0,    0,   sdmn1,sdm1,  0   ],
+                    [  sdIw1,0,    0,   0,    0,     sdW1]],
+                dtype = np.float32)
+
+    sdII2 = cov_params["sdII2"]
+    sdIs2 = cov_params["sdIs2"]
+    sdIw2 = cov_params["sdIw2"]
+    sdn2 = cov_params["sdn2"]
+    sdmn2 = cov_params["sdmn2"]
+    sdm2 = cov_params["sdm2"]
+    sdW2 = cov_params["sdW2"]
+
+    cov2 = np.array([[sdII2, 0,    0,   0,    0,     sdIw2],
+                    [ 0,     eps,  0,   0,    0,     0   ],
+                    [ 0,     0,    sdIs2, 0,    0,     0   ],
+                    [ 0,     0,    0,   sdn2, sdmn2, 0   ],
+                    [ 0,     0,    0,   sdmn2,sdm2,  0   ],
+                    [  sdIw2,0,    0,   0,    0,     sdW2]],
+                dtype = np.float32)
+
+    if plot:
+        """
+        Plot cov
+        """
+        titles=["P1 (w=.67)","P2 (w=.33)"]
+
+        labels = ["$I_{osc}$", "$I_{s_a}$", "$I_{s_b}$", "$n$",  "$m$", "$w$"]
+
+
+        _,_=plot_covs([cov1,cov2],vm,labels,titles, float_labels=True)
+    chol_cov1 = np.float32(np.linalg.cholesky(cov1[:,:]))
+    chol_cov2 = np.float32(np.linalg.cholesky(cov2[:,:]))
+
+
+    chol_covs = np.concatenate([[chol_cov1],[chol_cov2]])
+    return chol_covs
+
+def create_ICs_MF_R1(K_range, theta_range, tau, T, dt, w):
+    """
+    Create ICs for mean-field RNN simulations of rank 1 network
+
+    Args:
+        K_range: range of the radius in the k line
+        theta_range: range of the initial phase of the reference oscillation
+        tau: time constant of the RNN in ms
+        T: simulation time in s
+        dt: simulation time step in ms
+        w: frequency of the reference oscillation
+
+    Returns:
+        input_ICs: input to the RNN
+        x0s: RNN states at t=0
+        phases: phases of the reference oscillation
+   
+    """
+    tm = np.arange(0, T, dt / 1000)
+    total = len(K_range) * len(theta_range)
+    input_ICs = torch.zeros((total, len(tm), 3))
+    x0s = torch.zeros((total, 4))
+    phases = np.zeros((total, len(tm)))
+
+    i = 0
+
+    for k in K_range:
+        for ph0 in theta_range:
+            phases[i] = tm * w + ph0
+            v1 = (
+                1
+                / np.sqrt(1 + (tau * w / 1000) ** 2)
+                * np.sin(ph0 - np.arctan2(tau * w / 1000, 1))
+            )
+            v2 = (
+                1
+                / np.sqrt(1 + (tau * w / 1000) ** 2)
+                * np.cos(ph0 - np.arctan2(tau * w / 1000, 1))
+            )
+            u = np.array([np.sin(tm * w + ph0), np.cos(tm * w + ph0)]).T
+            x0 = np.array([k, v1, 0, 0])
+            x0s[i] = torch.from_numpy(x0)
+            input_ICs[i, :, 0] = torch.from_numpy(u[:, 0])
+            i += 1
+                
+    return x0s, input_ICs, phases
+
+def create_MF_covs_4Stims(cov_params, plot=False,vm=3):
+   
+    """
+    Create covariance matrices for a rank 2 network coding for 4 stimuli
+
+    Args:
+        cov_params:dictionary of covariance parameters
+        plot: plot the covariance matrices. Defaults to False.
+    
+    Returns:
+        chol_covs: Cholesky decomposition of the covariance matrices
+    """ 
+
+    eps = 1e-7
+
+    sdw = cov_params["osc_w"]
+    sd = cov_params["osc_r"]
+    sdm=cov_params["osc_sdm"]
+    sdn=cov_params["osc_sdn"]
+    sdmW = cov_params["osc_sdmW"]
+    sdW = cov_params["osc_sdW"]
+
+    cov1 = np.array([[ eps, 0,   0,   0,   0,   0,   0,   0,   0,   0],
+                    [ 0,   eps, 0,   0,   0,   0,   0,   0,   0,   0],
+                    [ 0,   0,   eps, 0,   0,   0,   0,   0,   0,   0],
+                    [ 0,   0,   0,  eps,   0,   0,   0,   0,   0,   0],
+                    [ 0,   0,   0,   0,  eps,   0,   0,   0,   0,   0],
+                    [ 0,   0,   0,   0,   0,   sdn,0,   sd,  -sdw, 0],
+                    [ 0,   0,   0,   0,   0,   0,   sdn,sdw,sd,  0],
+                    [ 0,   0,   0,   0,   0,   sd,  sdw,sdm, 0,   0],
+                    [ 0,   0,   0,   0,   0,   -sdw, sd,  0, sdm,   sdmW],
+                    [ 0,   0,   0,   0,   0,   0,   0,   0, sdmW,     sdW]],
+                dtype = np.float32)
+
+    IIn1 = cov_params["coupl_sdIn"]
+    sdIm = cov_params["coupl_sdIm"]
+    Iss = cov_params["coupl_sdIstim"]
+    diagn=cov_params["coupl_sdn"]
+    diagm1=cov_params["coupl1_sdm1"]
+    diagm2=cov_params["coupl1_sdm2"]
+    II = cov_params["coupl1_sdIosc"]
+    sdmW=cov_params["coupl_sdmW"]
+    sdW = cov_params["coupl_sdW"]
+    ofd12 = cov_params["coupl1_sdn1m2"]
+    ofd21 = cov_params["coupl1_sdn2m1"]
+    ofd11 = cov_params["coupl1_sdn1m1"]
+    ofd22 = cov_params["coupl1_sdn2m2"]
+
+    cov21 = np.array([[ II,   0,  0,    0,    0, IIn1,0,sdIm,  sdIm,   0],#   0,   0],
+                    [ 0,    eps,  0,    0,    0,    0,    0,    0,    0,   0],
+                    [ 0,    0,    Iss,  0,    0,    0,    0,    0,    0,   0],
+                    [ 0,    0,    0,  Iss,    0,    0,    0,    0,    0,   0],
+                    [ 0,    0,    0,    0,  Iss,    0,    0,    0,    0,   0],
+                    [ IIn1, 0,    0,    0,    0,diagn,    0,  ofd11, ofd12,   0],
+                    [ 0,0,    0,    0,    0,    0,diagn, ofd21, ofd22,   0],
+                    [ sdIm, 0,    0,    0,    0,  ofd11, ofd21,diagm2,   0,  0],
+                    [ sdIm, 0,    0,    0,    0, ofd12, ofd22,    0,diagm1,-sdmW],
+                    [ 0,   0,     0,    0,    0,    0,    0,    0,  -sdmW, sdW]],
+                dtype = np.float32)
+
+    cov22 = np.array([[ II,   0,  0,    0,    0,-IIn1,0,sdIm,  sdIm,   0],#   0,   0],
+                    [ 0,    Iss,  0,    0,    0,    0,    0,    0,    0,   0],
+                    [ 0,    0,    eps,  0,    0,    0,    0,    0,    0,   0],
+                    [ 0,    0,    0,  Iss,    0,    0,    0,    0,    0,   0],
+                    [ 0,    0,    0,    0,  Iss,    0,    0,    0,    0,   0],
+                    [ -IIn1,0,    0,    0,    0,diagn,    0,  ofd11, ofd12,   0],
+                    [ 0, 0,    0,    0,    0,    0,diagn, ofd21, ofd22,   0],
+                    [ sdIm, 0,    0,    0,    0,  ofd11, ofd21,diagm2,   0,   0],
+                    [ sdIm, 0,    0,    0,    0, ofd12, ofd22,    0,diagm1,-sdmW],
+                    [ 0,   0,     0,    0,    0,    0,    0,    0,  -sdmW, sdW]],
+                dtype = np.float32)
+    
+    II = cov_params["coupl1_sdIosc"]
+    diagm1=cov_params["coupl2_sdm1"]
+    diagm2=cov_params["coupl2_sdm2"]
+    ofd12 = cov_params["coupl2_sdn1m2"]
+    ofd21 = cov_params["coupl2_sdn2m1"]
+    ofd11 = cov_params["coupl2_sdn1m1"]
+    ofd22 = cov_params["coupl2_sdn2m2"]
+
+    cov23 = np.array([[ II,   0,  0,    0,    0, 0,IIn1,sdIm,  sdIm,   0],#   0,   0],
+                    [ 0,    Iss,  0,    0,    0,    0,    0,    0,    0,   0],
+                    [ 0,    0,    Iss,  0,    0,    0,    0,    0,    0,   0],
+                    [ 0,    0,    0,  eps,    0,    0,    0,    0,    0,   0],
+                    [ 0,    0,    0,    0,  Iss,    0,    0,    0,    0,   0],
+                    [ 0,0,    0,    0,    0,diagn,    0, ofd11, ofd12,   0],
+                    [ IIn1, 0,    0,    0,    0,    0,diagn,ofd21, ofd22,   0],
+                    [ sdIm, 0,    0,    0,    0, ofd11,ofd21,diagm1,   0,   sdmW],
+                    [ sdIm, 0,    0,    0,    0, ofd12, ofd22,    0,diagm2,0],
+                    [ 0,   0,     0,    0,    0,    0,    0,    sdmW, 0, sdW]],
+                dtype = np.float32)
+    
+    cov24 = np.array([[ II,   0,  0,    0,    0, 0,-IIn1,sdIm,  sdIm,   0],#   0,   0],
+                    [ 0,    Iss,  0,    0,    0,    0,    0,    0,    0,   0],
+                    [ 0,    0,    Iss,  0,    0,    0,    0,    0,    0,   0],
+                    [ 0,    0,    0,  Iss,    0,    0,    0,    0,    0,   0],
+                    [ 0,    0,    0,    0,  eps,    0,    0,    0,    0,   0],
+                    [ 0, 0,    0,    0,    0,diagn,    0, ofd11, ofd12,   0],
+                    [ -IIn1,0,    0,    0,    0,    0,diagn,ofd21, ofd22,   0],
+                    [ sdIm, 0,    0,    0,    0, ofd11,ofd21,diagm1,   0,   sdmW],
+                    [ sdIm, 0,    0,    0,    0, ofd12, ofd22,    0,diagm2,0],
+                    [ 0,   0,     0,    0,    0,    0,    0,    sdmW, 0, sdW]],
+                dtype = np.float32)
+
+    if plot:
+        """
+        Plot cov
+        """
+        titles=["oscillator","coupling a", "coupling b","coupling c","coupling d"]
+        labels = ["$I_{osc}$", "$I_{s_a}$", "$I_{s_b}$","$I_{s_c}$","$I_{s_d}$", "$n_1$", "$n_2$", "$m_1$", "$m_2$", "w"]
+        _,_=plot_covs([cov1,cov21,cov22,cov23,cov24],vm,labels,titles)
+
+    # Cholesky decomposition
+    chol_cov1 = np.float32(np.linalg.cholesky(cov1[:,:]))
+    chol_cov21 = np.float32(np.linalg.cholesky(cov21[:,:]))
+    chol_cov22 = np.float32(np.linalg.cholesky(cov22[:,:]))
+    chol_cov23 = np.float32(np.linalg.cholesky(cov23[:,:]))
+    chol_cov24 = np.float32(np.linalg.cholesky(cov24[:,:]))
+    chol_covs = np.concatenate([[chol_cov1],[chol_cov21],[chol_cov22],[chol_cov23],[chol_cov24]])
+    return chol_covs
+
+def su_stats(task_params,rnn,normalize = True, out_nonlinearity=False):
+    ds = seqDS(task_params)
+
+    dataloader = DataLoader(
+        ds, batch_size=128, shuffle=True
+    )
+    test_input, test_target, test_mask = next(iter(dataloader))
+    labels = extract_labels(test_input)
+    rates, _ = predict(rnn, test_input,mse_loss, test_target, test_mask)
+    #rates/=np.mean(rates**2,axis=(0,1),keepdims=True)
+
+    ind0=np.arange(128)[labels==0]
+    ind1=np.arange(128)[labels==1]
+
+    period = 1000/(task_params['freq']*task_params['dt'])
+    qp = int(period/4)
+    period=int(period)
+    sin = np.sin(np.linspace(0,np.pi*2,period))
+    cos = np.cos(np.linspace(0,np.pi*2,period))
+
+    phase= np.arctan2(test_input[:,0,0],test_input[:,qp,0]).cpu().numpy()
+    phase_int=np.int_(((phase+np.pi)/(np.pi*2))*period)+1
+
+    angs_dist=[]
+    means_dist = []
+
+    if out_nonlinearity:
+        norm_rates = rnn.rnn.out_nonlinearity(torch.from_numpy(rates).to(device =rnn.rnn.w_inp.device)).cpu().numpy()
+    else:
+        norm_rates = np.copy(rates)
+    if normalize:
+        norm_rates =  (norm_rates - np.mean(norm_rates[:,-period:],axis=(0,1)))/np.std(norm_rates[:,-period:],axis=(0,1))
+    
+
+
+    for ni in range(rates.shape[-1]):
+        
+        #RNN 1
+        angs0 = []
+        angs1 = []
+        means0= []
+        means1= []
+        for ind in ind0:
+            mean =  np.mean(norm_rates[ind,-period-phase_int[ind]:-phase_int[ind],ni])
+            angs0.append(np.angle(1j*np.inner(sin,rates[ind,-period-phase_int[ind]:-phase_int[ind],ni]-mean)+
+                        np.inner(cos,rates[ind,-period-phase_int[ind]:-phase_int[ind],ni]-mean)))
+            means0.append(mean)
+        for ind in ind1:
+            mean =  np.mean(norm_rates[ind,-period-phase_int[ind]:-phase_int[ind],ni])
+            angs1.append(np.angle(1j*np.inner(sin,rates[ind,-period-phase_int[ind]:-phase_int[ind],ni]-mean)+
+                        np.inner(cos,rates[ind,-period-phase_int[ind]:-phase_int[ind],ni]-mean)))
+            means1.append(mean)
+        angs_dist.append(circ_dif(circ_mean(angs1)[0],circ_mean(angs0)[0]))
+        means_dist.append(np.mean(means0)-np.mean(means1))
+    return angs_dist, means_dist
+
+def resample(gmm,params):
+    """Resample loadings of an RNN, using a fitted mixture model"""
+    loadings = gmm.sample(params['n_rec'])
+    params['loadings']=loadings[0].T
+    params['scale_w_out']=1#w_out 
+    params['scale_w_inp']=1
+    rnn_rs =RNN(params)
+    return rnn_rs
+
+def resample_emp(z,loadings,params, keep_means=True):
+    """Resample loadings of an RNN, using a fitted mixture model"""
+    loadings_new = np.zeros_like(loadings)
+    n_z = np.max(z)+1
+    covs = [np.cov(loadings[:,z==i]) for i in np.arange(n_z )]
+    if keep_means:
+        for i in np.arange(n_z):
+            loadings_new[:,z==i] = np.random.multivariate_normal(loadings[:,z==i].mean(axis=1),covs[i],size=np.sum(z==i)).T
+    else:
+        for i in np.arange(n_z):
+            loadings_new[:,z==i] = np.random.multivariate_normal(np.zeros(len(loadings)),covs[i],size=np.sum(z==i)).T
+    params['loadings']=loadings_new
+    params['scale_w_out']=1#w_out 
+    params['scale_w_inp']=1
+    rnn_rs =RNN(params)
+    return rnn_rs

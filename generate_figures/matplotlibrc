@@ -10,7 +10,7 @@
 text.usetex          : False
 mathtext.default     : regular
 
-font.family          : serif
+font.family          : sans-serif
 font.serif           : Arial, sans-serif
 font.sans-serif      : Arial, sans-serif
 font.cursive         : Arial, sans-serif
@@ -31,11 +31,15 @@ axes.spines.bottom   : True
 axes.spines.top      : False
 axes.spines.right    : False
 
-axes.linewidth       : 1.5
-xtick.major.width    : 1.5
-xtick.minor.width    : 1.5
-ytick.major.width    : 1.5
-ytick.minor.width    : 1.5
+axes.linewidth       : .75
+xtick.major.width    : .75
+xtick.minor.width    : .75
+ytick.major.width    : .75
+ytick.minor.width    : .75
+xtick.major.size   : 2
+xtick.minor.size   : 2
+ytick.major.size  : 2
+ytick.minor.size   : 2
 
 lines.linewidth      : 1.5
 lines.markersize     : 3

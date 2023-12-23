@@ -204,7 +204,7 @@ def extract_lfp_phase(resample_rate, filter_freqs, phase_freqs, rat,max_dur,buff
     n_artifacts = 0
 
     #loop through files
-    for file in files:
+    for file in files[:1]:
         filen= path+"/"+file
         reader = NeuroScopeIO(filename=filen)
         seg = reader.read_segment()

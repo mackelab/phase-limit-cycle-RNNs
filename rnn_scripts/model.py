@@ -105,8 +105,7 @@ class RNN(nn.Module):
         elif self.params["randomise_x0"]:
             if self.params["rank"] > 0 and self.params["train_meanfield"] == False:
                 # random k (in space spanned by singular vector)
-                h_t = (
-                    torch.outer(
+                h_t = torch.outer(
                         torch.randn(
                             batch_size,
                             device=self.rnn.w_inp.device,
@@ -114,15 +113,17 @@ class RNN(nn.Module):
                         ),
                         self.rnn.m[:, 0],
                     )
-                    + torch.outer(
-                        torch.randn(
-                            batch_size,
-                            device=self.rnn.w_inp.device,
-                            dtype=torch.float32,
-                        ),
-                        self.rnn.m[:, 1],
-                    )
-                ) * self.params["scale_x0"]
+                if self.params["rank"] > 1:
+                    for i in range(1,self.params["rank"]):
+                        h_t += torch.outer(
+                            torch.randn(
+                                batch_size,
+                                device=self.rnn.w_inp.device,
+                                dtype=torch.float32,
+                            ),
+                            self.rnn.m[:, i],
+                        )
+                h_t *=self.params["scale_x0"]
             else:
                 h_t = (
                     torch.randn(

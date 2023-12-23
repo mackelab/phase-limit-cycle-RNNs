@@ -25,7 +25,7 @@ else:
 if os.path.exists(out_dir) == False:
     os.makedirs(out_dir)
 n_out = 1
-n_inp = 5
+n_inp = 3
 n_osc = 1
 dt = 1
 loadings = None
@@ -69,7 +69,7 @@ params = {
 }
 
 training_params = {
-    "n_epochs": 250,
+    "n_epochs": 50,
     "lr": 10e-3,
     "batch_size": 128,
     "clip_gradient": 1,
@@ -77,7 +77,7 @@ training_params = {
     "loss_fn": "mse",
     "optimizer": "adam",
     "osc_reg_cost": 0,
-    "offset_reg_cost_masked": 0.5,
+    "offset_reg_cost_masked": 0,
     "offset_reg_cost": 0, 
     "l2_rates_cost": 0,
     "l2_cov_cost": 0,
@@ -99,7 +99,7 @@ task_params = {
     "n_out": n_out,
     "out_scale": 1,
     "resample_rate": 1.25,
-    "rat": 3,
+    "rat": 2,
     "max_dur": 4,
     "buffer": 1,
     "artifact_tol": 3,
@@ -117,7 +117,7 @@ loss, _ = train_rnn(
     rnn,
     training_params,
     ds,
-    sync_wandb=True,
+    sync_wandb=False,
     params=params,
     task_params=task_params,
     out_dir=out_dir,

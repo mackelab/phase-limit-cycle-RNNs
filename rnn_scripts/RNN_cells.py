@@ -290,7 +290,12 @@ class Cov_RNNCell(nn.Module):
         covs = np.zeros(
             (params["n_supports"], self.loading_dim, self.loading_dim), dtype=np.float32
         )
+        self.weights = nn.Parameter(torch.Tensor(params["n_supports"]))
+        self.weights.requires_grad = False
         with torch.no_grad():
+            self.weights.copy_(
+                torch.from_numpy(np.ones(params["n_supports"]) / params["n_supports"])
+            )
             for i in range(params["n_supports"]):
                 cov_chol = (
                     initialize_loadings(params, return_loadings=False)
@@ -309,17 +314,21 @@ class Cov_RNNCell(nn.Module):
         """
         Resample entries in the network connectivity from the trainable covariance matrix
         """
-        gaussian_basis = self.Gauss.sample(
-            (self.n_supports, self.loading_dim, self.N // self.n_supports)
-        )
-        loadings = torch.bmm(self.cov_chols, gaussian_basis)
-        self.loadings = loadings.permute(1, 0, 2).flatten(start_dim=1)
-        self.n = self.loadings[self.n_inp : self.n_inp + self.rank]
+        loadings = []
+        for cov_chol, w in zip(self.cov_chols,self.weights):
+            gaussian_basis = self.Gauss.sample(
+                (self.loading_dim, int(self.N * w))
+            )
+            loadings.append(cov_chol@gaussian_basis)
+        self.loadings = torch.cat(loadings, dim=1)
+        #print(self.cov_chols.device)
+        self.n = self.loadings[self.n_inp : self.n_inp + self.rank]#.to(device = self.cov_chols.device)
+        #pritn(s)
         self.m = self.loadings[
             self.n_inp + self.rank : self.n_inp + self.rank + self.rank
-        ].t()
-        self.w_inp = self.loadings[: self.n_inp]
-        self.w_out = self.loadings[self.n_inp + self.rank + self.rank :].t()
+        ].t()#.to(device = self.cov_chols.device)
+        self.w_inp = self.loadings[: self.n_inp]#.to(device = self.cov_chols.device)
+        self.w_out = self.loadings[self.n_inp + self.rank + self.rank :].t()#.to(device = self.cov_chols.device)
 
     def forward(self, input, x, noise=0):
         """
@@ -425,7 +434,7 @@ class Meanfield_RNNCell(nn.Module):
         self.w_inp = nn.Parameter(torch.Tensor(params["n_inp"], params["n_rec"]))
         self.readout_kappa = params["readout_kappa"]
         self.orth_indices = params["orth_indices"]
-
+        self.out_nonlinearity = params["out_nonlinearity"]
     def forward(self, input, x, noise=0):
         """
         Do a forward pass through one timestep
@@ -446,7 +455,9 @@ class Meanfield_RNNCell(nn.Module):
         covs = torch.bmm(C, C.permute((0, 2, 1)))
         n_ind = self.n_inp
         m_ind = self.rank + self.n_inp
-
+        #print(covs)
+        #print(n_ind)
+        #print(m_ind)
         # Calculate gains
         delta0 = torch.sum(
             torch.stack(
@@ -464,7 +475,6 @@ class Meanfield_RNNCell(nn.Module):
             axis=0,
         )
         gains = self.gain(delta0)
-
         # Recurrent decay
         dK = -K
 
@@ -498,7 +508,7 @@ class Meanfield_RNNCell(nn.Module):
 
         # output
         if self.readout_kappa:
-            out = K_n
+            out = K_n[:,0].unsqueeze(1)
         else:
             out = torch.zeros((K.size()[0], self.n_out))
             for i in range(self.n_out):
@@ -520,7 +530,11 @@ class Meanfield_RNNCell(nn.Module):
                     ),
                     axis=0,
                 )
-                out[:, i] += torch.sum(w_out * gains * self.weights, axis=1)
+                if self.out_nonlinearity=="tanh":
+                    out[:, i] += torch.sum(w_out * gains * self.weights, axis=1)
+                else:
+                    out[:, i] += torch.sum(w_out * self.weights, axis=1)
+
         x = torch.cat((K_n, V_n), 1)
         return x, out
 
