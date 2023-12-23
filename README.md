@@ -1,6 +1,6 @@
 ### Code for Trained recurrent neural networks develop  phase-locked limit cycles in a working memory task.
 
-[Ref preprint]()
+[click here to go to the preprint](https://www.biorxiv.org/content/10.1101/2023.04.11.536352v1)
 
 
 First install the conda environment: 
@@ -18,5 +18,4 @@ To create the 3D plots you need to allow the [Mayavi](https://mayavi.readthedocs
 ```$ jupyter nbextension enable --py mayavi --user```
 
 
-Paper written by: Matthijs Pals, Jakob Macke and Omri Barak
-Code written by: Matthijs Pals
+Paper written by: Matthijs Pals, Jakob Macke and Omri Barak, code written by: Matthijs Pals
