@@ -869,6 +869,17 @@ def get_dataset_stats(task_params,training_params, data_path, dt,file):
 
 def create_MF_covs(cov_params, plot=False,vm=3):
     
+    """
+    Create covariance matrices for phase coding mean field model 2 memories
+
+    Args:
+        cov_params:dictionary of covariance parameters
+        plot: plot the covariance matrices. Defaults to False.
+    
+    Returns:
+        chol_covs: Cholesky decomposition of the covariance matrices
+        covs: covariance matrices
+    """
     
 
     eps = 1e-7
@@ -929,6 +940,7 @@ def create_MF_covs(cov_params, plot=False,vm=3):
                     [ 0,   0,   0,   0,    0,    0,    sdmW,   sdW]],
                 dtype = np.float32)
 
+    covs = np.array([cov1,cov21,cov22])
 
     if plot:
         """
@@ -939,14 +951,14 @@ def create_MF_covs(cov_params, plot=False,vm=3):
         labels = ["$I_{osc}$", "$I_{s_a}$", "$I_{s_b}$", "$n_1$", "$n_2$", "$m_1$", "$m_2$", "w"]
 
 
-        _,_=plot_covs([cov1,cov21,cov22],vm,labels,titles)
+        _,_=plot_covs(covs,vm,labels,titles)
     chol_cov1 = np.float32(np.linalg.cholesky(cov1[:,:]))
     chol_cov21 = np.float32(np.linalg.cholesky(cov21[:,:]))
     chol_cov22 = np.float32(np.linalg.cholesky(cov22[:,:]))
 
 
     chol_covs = np.concatenate([[chol_cov1],[chol_cov1],[chol_cov21],[chol_cov22]])
-    return chol_covs
+    return chol_covs,covs
 
 
 def create_ICs_phase_prec(r_range,phi_range,theta_range, stim_range,tau, T, dt,w,amp,n_inp=2):
