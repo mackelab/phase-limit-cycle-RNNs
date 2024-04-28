@@ -1,6 +1,6 @@
 ### Code for Trained recurrent neural networks develop  phase-locked limit cycles in a working memory task.
 
-[click here to go to the preprint](https://www.biorxiv.org/content/10.1101/2023.04.11.536352v1)
+[click here to go to the paper](https://journals.plos.org/ploscompbiol/article?id=10.1371/journal.pcbi.1011852)
 
 
 First install the conda environment: 
